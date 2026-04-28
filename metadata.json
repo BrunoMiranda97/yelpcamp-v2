@@ -1,0 +1,8 @@
+{
+  "name": "YelpCamp",
+  "description": "A full-stack campgrounds review platform featuring authentication, interactive maps, and media uploads.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": []
+}

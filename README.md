@@ -3,7 +3,7 @@
 A modern full-stack campground marketplace inspired by the original YelpCamp project — rebuilt from scratch with a modern architecture, improved UI/UX, Docker support, cloud deployment, authentication, maps integration, and production-ready backend structure.
 
 ### Live Demo
-https://yelpcamp-v2-smoky.vercel.app/
+https://yelpcamp-v2-eight.vercel.app/
 
 ### Previous Version (V1)
 https://github.com/BrunoMiranda97/yelpcamp-v1

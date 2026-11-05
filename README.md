@@ -1,247 +1,155 @@
 # YelpCamp V2 🏕️
 
-A modern full-stack campground marketplace inspired by the original YelpCamp project — rebuilt from scratch with a modern architecture, improved UI/UX, Docker support, cloud deployment, authentication, maps integration, and production-ready backend structure.
+[![CI](https://github.com/BrunoMiranda97/yelpcamp-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/BrunoMiranda97/yelpcamp-v2/actions/workflows/ci.yml)
 
-### Live Demo
-https://yelpcamp-v2-eight.vercel.app/
+A full-stack campground marketplace built with React 19, TypeScript, Express and MongoDB. Users can list campsites with photos and map locations, browse them on a clustered map, and leave reviews.
 
-### Previous Version (V1)
-https://github.com/BrunoMiranda97/yelpcamp-v1
+**Live demo:** https://yelpcamp-v2-eight.vercel.app/
+**Previous version (V1):** https://github.com/BrunoMiranda97/yelpcamp-v1
 
 ---
 
 ## Why V2?
 
-My original YelpCamp project was built while learning backend fundamentals.
+V1 was built while I was learning backend fundamentals. V2 is a rebuild with typed code end to end, a separated API, cloud deployment and Docker.
 
-This second version was rebuilt to demonstrate:
-
-- cleaner architecture
-- modern frontend design
-- improved scalability
-- API separation
-- cloud deployment
-- Docker support
-- better authentication flow
-- production readiness
-
-This project represents my growth as a developer.
+After the first release, I ran a **technical audit** of V2 and fixed what it found: a stored XSS, a hard-coded JWT fallback secret, unmounted review routes, missing input validation, a broken Docker setup and no automated tests. The [Engineering notes](#engineering-notes) section explains these decisions.
 
 ---
 
-# Tech Stack
+## Tech stack
 
-### Frontend
-- React 19
-- TypeScript
-- Vite
-- React Router
-- Tailwind CSS
-- Framer Motion
-- Lucide Icons
-
-### Backend
-- Node.js
-- Express
-- MongoDB Atlas
-- Mongoose
-- JWT Authentication
-- bcrypt
-
-### Infrastructure / DevOps
-- Docker
-- Docker Compose
-- Vercel
-- Cloudinary
-- Mapbox
+| Layer | Technologies |
+| --- | --- |
+| Frontend | React 19, TypeScript (strict), Vite, React Router 7, Tailwind CSS 4, Motion, Mapbox GL |
+| Backend | Node.js, Express, MongoDB / Mongoose, Zod, JWT, bcrypt, Multer + Cloudinary |
+| Security | Helmet (CSP), CORS allow-list, express-rate-limit, express-mongo-sanitize |
+| Testing | Vitest, Supertest, mongodb-memory-server, Testing Library |
+| Infra | Docker (multi-stage), Docker Compose, Vercel (serverless API + static SPA), GitHub Actions |
 
 ---
 
-# Features
+## Features
 
-### Authentication
-- User registration
-- Login/logout
-- JWT authentication
-- Protected routes
-- Persistent sessions
-
-### Campgrounds
-- Create campgrounds
-- View all campgrounds
-- Pagination
-- Campground details
-- Delete campgrounds
-- Edit campgrounds
-
-### Reviews
-- Create reviews
-- Delete reviews
-- Ratings system
-
-### Maps
-- Interactive Mapbox integration
-- Geolocation display
-
-### Image Upload
-- Cloudinary image hosting
-
-### Security
-- Helmet
-- Rate limiting
-- Mongo sanitize
-- Input validation
+- **Auth:** registration and login with JWT, protected routes with redirect back after login, automatic logout when the token expires.
+- **Campgrounds:** create/edit/delete (owner or admin only), image upload to Cloudinary or an external image URL, geocoding with Mapbox.
+- **Browse:** infinite scroll with server-side pagination, server-side search across all records, clustered map.
+- **Reviews:** 1–5 star ratings with a server-computed average; only the author or an admin can delete a review.
 
 ---
 
-# Project Architecture
+## Architecture
 
-```bash
-YelpCamp-V2/
-│
-├── api/
-│   └── index.ts              # Vercel serverless entry
-│
-├── src/
-│   ├── client/
-│   │   ├── components/
-│   │   ├── pages/
-│   │   ├── context/
-│   │   └── hooks/
-│   │
-│   └── server/
-│       ├── config/
-│       ├── middleware/
-│       ├── models/
-│       ├── routes/
-│       └── utils/
-│
-├── app.ts
-├── server.ts
-├── Dockerfile
-├── docker-compose.yml
-├── vercel.json
-└── package.json
+```text
+yelpcamp-v2/
+├── api/                      # Express API
+│   ├── app.ts                # Express app: security middleware, routes, error handler
+│   ├── index.ts              # Vercel serverless entry
+│   ├── server.ts             # Standalone server (local dev, Docker); serves the SPA in production
+│   ├── db.ts                 # Cached MongoDB connection (serverless-friendly)
+│   ├── config/               # Env validation, Cloudinary/Multer
+│   ├── middleware/           # JWT auth, centralized error handling
+│   ├── models/               # Mongoose schemas
+│   ├── routes/               # auth, campgrounds, reviews
+│   ├── utils/                # HttpError, asyncHandler
+│   └── validation/           # Zod schemas
+├── src/                      # React SPA
+│   ├── components/           # UI, layout, campground/* (map, carousel, reviews)
+│   ├── context/              # Auth and theme providers
+│   ├── hooks/                # Data hooks with request cancellation
+│   ├── pages/                # Route components (map-heavy pages are lazy-loaded)
+│   ├── services/             # Typed HTTP client and session storage
+│   └── types.ts              # Shared domain types
+├── tests/
+│   ├── api/                  # Integration tests against an in-memory MongoDB
+│   └── web/                  # Frontend unit/component tests
+├── Dockerfile                # Multi-stage build → Node runtime serving API + SPA
+├── docker-compose.yml        # App + MongoDB
+└── vercel.json               # Serverless API + static build
 ```
 
+The same Express app runs in two places: as a Vercel serverless function (`api/index.ts`) and as a standalone server (`api/server.ts`) for local development and Docker.
+
 ---
 
-# Local Installation
+## Getting started
 
-Clone repository:
+**Requirements:** Node.js 20+, a MongoDB database (or Docker), and Cloudinary and Mapbox accounts.
 
 ```bash
 git clone https://github.com/BrunoMiranda97/yelpcamp-v2.git
 cd yelpcamp-v2
-```
-
-Install dependencies:
-
-```bash
 npm install
+cp .env.example .env   # then fill in the values
+npm run dev            # API on :3001 + Vite on :5173 (proxied /api)
 ```
 
-Create `.env` file:
+### Environment variables
 
-```env
-MONGODB_URI=your_mongodb_connection
-JWT_SECRET=your_secret_key
+| Variable | Required | Description |
+| --- | --- | --- |
+| `MONGODB_URI` | yes | MongoDB connection string |
+| `JWT_SECRET` | yes | At least 32 characters; the API refuses to start otherwise |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_KEY` / `CLOUDINARY_SECRET` | yes | Image uploads |
+| `VITE_MAPBOX_TOKEN` | yes | Public Mapbox token (maps and geocoding) |
+| `ALLOWED_ORIGINS` | no | Comma-separated origins allowed to call the API cross-origin |
+| `PORT` | no | Local API port (default `3001`) |
 
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_KEY=your_api_key
-CLOUDINARY_SECRET=your_api_secret
+### Scripts
 
-VITE_MAPBOX_TOKEN=your_mapbox_token
-```
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | API (tsx watch) and frontend (Vite) together |
+| `npm test` | All tests (API integration + frontend) |
+| `npm run lint` | TypeScript type check (strict) |
+| `npm run build` / `npm run build:api` | Build the SPA / compile the API to `build/api` |
+| `npm start` | Run the compiled API (serves the SPA when `NODE_ENV=production`) |
 
-Run locally:
+### Docker
 
 ```bash
-npm run dev
+docker compose up --build   # http://localhost:3001
 ```
+
+Compose starts the app together with a local MongoDB, so the stack runs with one command. The image is a multi-stage build: it contains only production dependencies and compiled output, runs as a non-root user and has a health check.
 
 ---
 
-# Docker Setup
+## Testing and CI
 
-Build and run container:
+There are 31 tests. The API tests are integration tests that run against a real MongoDB in memory. They cover:
 
-```bash
-docker compose up --build
-```
+- **Authentication:** validation, password hashing, blocking self-assigned admin rights, NoSQL injection, forged tokens and rate limiting.
+- **Authorization:** users cannot edit or delete other users' campgrounds or reviews, and a review cannot be deleted through another campground's URL.
+- **Data integrity:** the average rating stays correct and deleting a campground also deletes its reviews.
+- **Search and pagination:** search runs on the server, regex input is escaped and page sizes are capped.
+- **Frontend:** restoring a session (expired or corrupted data) and the route guard.
 
-Stop containers:
-
-```bash
-docker compose down
-```
+GitHub Actions runs the lint, tests and both builds on every push and pull request, and also checks that the Docker image builds.
 
 ---
 
-# Deployment
+## Engineering notes
 
-## GitHub
+Key fixes from the audit, and the reasoning behind them:
 
-```bash
-git init
-git add .
-git commit -m "initial commit"
-git branch -M main
-git remote add origin https://github.com/BrunoMiranda97/yelpcamp-v2.git
-git push -u origin main
-```
+- **Stored XSS in map popups:** popups were built with `setHTML()` and user-provided titles. They now use DOM nodes and `textContent`, and a Content Security Policy adds a second layer of protection.
+- **JWT secret:** the hard-coded fallback secret was removed. Configuration is validated at startup, so the app fails fast instead of signing tokens with a known key.
+- **Validation and errors:** every input goes through Zod schemas, and a central error handler maps errors to consistent 4xx responses without leaking internals. Malformed IDs return 404 instead of 500.
+- **Data integrity:** deleting a campground also removes its reviews and its Cloudinary images, and a review is saved before it is referenced. If validation fails, images that were already uploaded are cleaned up.
+- **Search:** search used to filter only the page already loaded in the browser. It now runs on the server, with debounce and cancellation of outdated requests.
+- **Type safety:** the project had no React type definitions and strict mode was off, so most frontend code was effectively `any`. The codebase now type-checks under `strict`, with shared domain types.
 
----
+### Known trade-offs
 
-## Vercel
-
-Deploy production build:
-
-```bash
-vercel --prod
-```
-
-Add environment variables inside Vercel dashboard:
-
-- MONGODB_URI
-- JWT_SECRET
-- CLOUDINARY_CLOUD_NAME
-- CLOUDINARY_KEY
-- CLOUDINARY_SECRET
-- VITE_MAPBOX_TOKEN
+- **The JWT is stored in `localStorage`.** This keeps the API stateless and simple. The risk is mitigated by removing the XSS sources and by the CSP. An HttpOnly cookie with CSRF protection is the next step if the app grows.
+- **Rate limiting is in memory.** On serverless, each instance keeps its own counters. A shared store such as Redis or Upstash would make the limit global.
+- **The CSP is report-only on Vercel.** It is enforced when Express serves the app (Docker) and runs in `Report-Only` mode on Vercel until it is validated in production.
 
 ---
 
-# Lessons Learned
-
-During V2 development I solved several real-world deployment problems:
-
-- Docker build issues
-- Vercel serverless routing issues
-- MongoDB connection caching
-- Environment variable handling
-- API rewrites
-- Production debugging
-- Cloud deployment troubleshooting
-
-This project taught me far more than simply building CRUD functionality.
-
----
-
-# Author
+## Author
 
 **Bruno Miranda**
-
-GitHub: https://github.com/BrunoMiranda97  
+GitHub: https://github.com/BrunoMiranda97
 LinkedIn: https://www.linkedin.com/in/brunomiranda97/
-
----
-
-# Final Note
-
-This project intentionally remains public to showcase both:
-
-- my original learning version (V1)
-- my improved production-ready version (V2)
-
-The contrast between both projects reflects my evolution as a software developer.

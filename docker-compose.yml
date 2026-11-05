@@ -1,7 +1,34 @@
+# Runs the full stack locally: Express (API + built SPA) and a MongoDB instance.
+# To use MongoDB Atlas instead, remove the `mongo` service and the MONGODB_URI override below.
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_MAPBOX_TOKEN: ${VITE_MAPBOX_TOKEN:-}
     ports:
-      - "3000:3000"
+      - "3001:3001"
     env_file:
       - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      MONGODB_URI: mongodb://mongo:27017/yelpcamp
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  mongo-data:

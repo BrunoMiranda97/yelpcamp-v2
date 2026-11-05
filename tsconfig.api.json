@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "outDir": "build/api",
+    "rootDir": "api",
+    "types": ["node"],
+    "lib": ["ES2022"],
+    "sourceMap": true
+  },
+  "include": ["api"]
+}

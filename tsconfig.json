@@ -1,7 +1,6 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "module": "NodeNext",
     "lib": [
@@ -13,7 +12,6 @@
     "moduleResolution": "NodeNext",
     "isolatedModules": true,
     "moduleDetection": "force",
-    "allowJs": true,
     "jsx": "react-jsx",
     "types": [
       "vite/client",
@@ -25,6 +23,14 @@
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true
-  }
+    "noEmit": true,
+    "strict": true
+  },
+  "include": [
+    "src",
+    "api",
+    "tests",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ]
 }

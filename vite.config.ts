@@ -15,6 +15,10 @@ export default defineConfig(({mode}) => {
     server: {
       // HMR is disabled via DISABLE_HMR env var.
       hmr: process.env.DISABLE_HMR !== 'true',
+      // Forward API calls to the local Express server (npm run dev:api)
+      proxy: {
+        '/api': `http://localhost:${env.PORT || 3001}`,
+      },
     },
   };
 });

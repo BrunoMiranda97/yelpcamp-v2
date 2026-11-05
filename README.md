@@ -133,7 +133,7 @@ GitHub Actions runs the lint, tests and both builds on every push and pull reque
 
 Key fixes from the audit, and the reasoning behind them:
 
-- **Stored XSS in map popups:** popups were built with `setHTML()` and user-provided titles. They now use DOM nodes and `textContent`, and a Content Security Policy adds a second layer of protection.
+- **Stored XSS in map popups:** popups were built with `setHTML()` and user-provided titles. They now use DOM nodes and `textContent`, and a Content Security Policy adds a second layer of protection. The CSP ran in report-only mode in production first and was enforced once no violations showed up.
 - **JWT secret:** the hard-coded fallback secret was removed. Configuration is validated at startup, so the app fails fast instead of signing tokens with a known key.
 - **Validation and errors:** every input goes through Zod schemas, and a central error handler maps errors to consistent 4xx responses without leaking internals. Malformed IDs return 404 instead of 500.
 - **Data integrity:** deleting a campground also removes its reviews and its Cloudinary images, and a review is saved before it is referenced. If validation fails, images that were already uploaded are cleaned up.
@@ -144,7 +144,6 @@ Key fixes from the audit, and the reasoning behind them:
 
 - **The JWT is stored in `localStorage`.** This keeps the API stateless and simple. The risk is mitigated by removing the XSS sources and by the CSP. An HttpOnly cookie with CSRF protection is the next step if the app grows.
 - **Rate limiting is in memory.** On serverless, each instance keeps its own counters. A shared store such as Redis or Upstash would make the limit global.
-- **The CSP is report-only on Vercel.** It is enforced when Express serves the app (Docker) and runs in `Report-Only` mode on Vercel until it is validated in production.
 
 ---
 

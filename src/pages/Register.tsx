@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { UserPlus, User, Mail, Lock, ShieldCheck } from "lucide-react";
 import { motion } from "motion/react";
 import { useAuth } from "../context/AuthContext.tsx";
+import { authApi, errorMessage } from "../services/api.ts";
 import { Button, Card } from "../components/ui/Layout.tsx";
 
 export default function Register() {
@@ -18,23 +19,12 @@ export default function Register() {
     e.preventDefault();
     setLoading(true);
     setError("");
-
     try {
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email, password }),
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        authLogin(data.user, data.token);
-        navigate("/campgrounds");
-      } else {
-        setError(data.message || "Registration failed");
-      }
+      const data = await authApi.register(username, email, password);
+      authLogin(data.user, data.token);
+      navigate("/campgrounds");
     } catch (err) {
-      setError("Network error. Please try again.");
+      setError(errorMessage(err, "Registration failed"));
     } finally {
       setLoading(false);
     }
@@ -84,6 +74,8 @@ export default function Register() {
                 <Lock className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
                   type="password"
+                  minLength={8}
+                  maxLength={72}
                   placeholder="Password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

@@ -2,13 +2,15 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MapPin, DollarSign, Image as ImageIcon, Send, ArrowLeft, Loader2 } from "lucide-react";
 import { motion } from "motion/react";
-import { useAuth } from "../context/AuthContext.tsx";
+import { canModify, useAuth } from "../context/AuthContext.tsx";
+import { useCampground } from "../hooks/useCampgrounds.ts";
+import { campgroundsApi, errorMessage } from "../services/api.ts";
 import { Button, Card } from "../components/ui/Layout.tsx";
 import { Skeleton } from "../components/ui/Skeleton.tsx";
 import { Modal } from "../components/ui/Modal.tsx";
 
 export default function EditCampground() {
-  const { id } = useParams();
+  const { id = "" } = useParams();
   const [formData, setFormData] = useState({
     title: "",
     location: "",
@@ -16,77 +18,42 @@ export default function EditCampground() {
     description: "",
     imageUrl: ""
   });
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user } = useAuth(); // guaranteed by <RequireAuth>
+  const { campground, loading, error: loadError } = useCampground(id);
 
   useEffect(() => {
-    const fetchCampground = async () => {
-      try {
-        const res = await fetch(`/api/campgrounds/${id}`);
-        if (!res.ok) throw new Error("Failed to fetch campground");
-        const data = await res.json();
-        
-        // Authorization check
-        if (user && data.author && data.author._id !== user.id && !user.isAdmin) {
-          navigate(`/campgrounds/${id}`);
-          return;
-        }
-
-        setFormData({
-          title: data.title,
-          location: data.location,
-          price: data.price.toString(),
-          description: data.description,
-          imageUrl: data.images?.[0]?.url || ""
-        });
-      } catch (err) {
-        setError("Failed to load campground data");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (user) {
-      fetchCampground();
+    if (!campground) return;
+    // Only the owner (or an admin) may edit; the API enforces this too
+    if (!canModify(user, campground.author?._id)) {
+      navigate(`/campgrounds/${id}`, { replace: true });
+      return;
     }
-  }, [id, user, navigate]);
+    setFormData({
+      title: campground.title,
+      location: campground.location,
+      price: String(campground.price),
+      description: campground.description,
+      imageUrl: campground.images?.[0]?.url || ""
+    });
+  }, [campground, user, id, navigate]);
+
+  useEffect(() => {
+    if (loadError) setError(loadError.status === 404 ? "Campground not found" : "Failed to load campground data");
+  }, [loadError]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError("");
-
-    const token = localStorage.getItem("token");
-    if (!token) {
-      navigate("/login");
-      return;
-    }
-
     try {
-      const res = await fetch(`/api/campgrounds/${id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          ...formData,
-          price: parseFloat(formData.price)
-        }),
-      });
-
-      if (res.ok) {
-        navigate(`/campgrounds/${id}`);
-      } else {
-        const data = await res.json();
-        setError(data.message || "Failed to update campground");
-      }
+      await campgroundsApi.update(id, { ...formData, price: Number(formData.price) });
+      navigate(`/campgrounds/${id}`);
     } catch (err) {
-      setError("An error occurred. Please try again.");
+      setError(errorMessage(err, "Failed to update campground"));
     } finally {
       setSubmitting(false);
     }
@@ -95,17 +62,11 @@ export default function EditCampground() {
   const handleDelete = async () => {
     setSubmitting(true);
     setIsDeleteModalOpen(false);
-    
-    const token = localStorage.getItem("token");
     try {
-      const res = await fetch(`/api/campgrounds/${id}`, {
-        method: "DELETE",
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("Failed to delete");
+      await campgroundsApi.remove(id);
       navigate("/campgrounds");
     } catch (err) {
-      setError("Failed to delete campground");
+      setError(errorMessage(err, "Failed to delete campground"));
       setSubmitting(false);
     }
   };

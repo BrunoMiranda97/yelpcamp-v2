@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapPin, DollarSign, Image as ImageIcon, AlignLeft, Send, ArrowLeft, Loader2 } from "lucide-react";
 import { motion } from "motion/react";
-import { useAuth } from "../context/AuthContext.tsx";
+import { campgroundsApi, errorMessage } from "../services/api.ts";
 import { Button, Card } from "../components/ui/Layout.tsx";
 
 export default function NewCampground() {
@@ -17,51 +17,25 @@ export default function NewCampground() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
-    const token = localStorage.getItem("token");
-    if (!token) {
-      navigate("/login");
-      return;
-    }
+    const data = new FormData();
+    data.append("title", formData.title);
+    data.append("location", formData.location);
+    data.append("price", formData.price);
+    data.append("description", formData.description);
+    data.append("imageUrl", formData.imageUrl);
+    if (files) Array.from(files).forEach((file) => data.append("images", file));
 
     try {
-      const data = new FormData();
-      data.append("title", formData.title);
-      data.append("location", formData.location);
-      data.append("price", formData.price);
-      data.append("description", formData.description);
-      data.append("imageUrl", formData.imageUrl);
-      
-      if (files) {
-        for (let i = 0; i < files.length; i++) {
-          data.append("images", files[i]);
-        }
-      }
-
-      const res = await fetch("/api/campgrounds", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`
-          // Content-Type is set automatically for FormData
-        },
-        body: data,
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        navigate(`/campgrounds/${data._id}`);
-      } else {
-        const data = await res.json();
-        setError(data.message || "Failed to create campground");
-      }
+      const campground = await campgroundsApi.create(data);
+      navigate(`/campgrounds/${campground._id}`);
     } catch (err) {
-      setError("An error occurred. Please try again.");
+      setError(errorMessage(err, "Failed to create campground"));
     } finally {
       setLoading(false);
     }

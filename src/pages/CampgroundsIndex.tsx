@@ -2,45 +2,37 @@ import { useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Search, Loader2, Star, MapPin } from "lucide-react";
 import { motion } from "motion/react";
-import { useCampgrounds, useMapData } from "../hooks/useApp.ts";
+import { useCampgrounds, useDebouncedValue, useMapData } from "../hooks/useCampgrounds.ts";
 import { CampgroundCardSkeleton } from "../components/ui/Skeleton.tsx";
 import { Card, Button } from "../components/ui/Layout.tsx";
 import ClusterMap from "../components/ClusterMap.tsx";
 
 export default function CampgroundsIndex() {
-  const { campgrounds, loading, loadingMore, error, hasMore, fetchMore } = useCampgrounds();
-  const { mapData } = useMapData();
   const [search, setSearch] = useState("");
-  
+  // Search runs on the server, so it covers every page, not just what is loaded
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const { campgrounds, loading, loadingMore, error, hasMore, fetchMore } = useCampgrounds(debouncedSearch);
+  const mapData = useMapData(debouncedSearch);
+
   const observer = useRef<IntersectionObserver | null>(null);
   const lastElementRef = useCallback((node: HTMLDivElement | null) => {
     if (loading || loadingMore) return;
     if (observer.current) observer.current.disconnect();
-    
+
     observer.current = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting && hasMore) {
         fetchMore();
       }
     });
-    
+
     if (node) observer.current.observe(node);
   }, [loading, loadingMore, hasMore, fetchMore]);
-
-  const filteredCampgrounds = campgrounds.filter((c: any) =>
-    c.title.toLowerCase().includes(search.toLowerCase()) ||
-    c.location.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const filteredMapData = mapData.filter((c: any) =>
-    c.title.toLowerCase().includes(search.toLowerCase()) ||
-    c.location.toLowerCase().includes(search.toLowerCase())
-  );
 
   if (error) throw new Error(error);
 
   return (
     <div className="flex flex-col w-full min-h-screen pb-20">
-      <ClusterMap campgrounds={filteredMapData} />
+      <ClusterMap campgrounds={mapData} />
       
       <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6">
         <div className="mb-12">
@@ -68,8 +60,8 @@ export default function CampgroundsIndex() {
         </div>
 
         <div className="flex flex-col gap-8">
-          {filteredCampgrounds.map((camp: any, idx: number) => {
-            const isLast = filteredCampgrounds.length === idx + 1;
+          {campgrounds.map((camp, idx) => {
+            const isLast = campgrounds.length === idx + 1;
             return (
               <motion.div
                 key={camp._id}
@@ -149,7 +141,7 @@ export default function CampgroundsIndex() {
           </div>
         )}
 
-        {!loading && filteredCampgrounds.length === 0 && (
+        {!loading && campgrounds.length === 0 && (
           <div className="text-center py-32 border-2 border-dashed rounded-3xl border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50">
             <div className="w-16 h-16 bg-white dark:bg-slate-800 rounded-2xl shadow-xl flex items-center justify-center mx-auto mb-6">
               <Search className="text-slate-400" />
@@ -165,7 +157,7 @@ export default function CampgroundsIndex() {
           </div>
         )}
         
-        {!hasMore && filteredCampgrounds.length > 0 && (
+        {!hasMore && campgrounds.length > 0 && (
           <div className="text-center py-16">
             <div className="inline-block px-6 py-2 bg-slate-50 dark:bg-slate-800/50 rounded-full border border-slate-100 dark:border-slate-700">
               <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em]">You've reached the edge of the wilderness</p>

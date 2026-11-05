@@ -1,8 +1,9 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ShieldCheck, LogIn, Mail, Lock } from "lucide-react";
 import { motion } from "motion/react";
 import { useAuth } from "../context/AuthContext.tsx";
+import { authApi, errorMessage } from "../services/api.ts";
 import { Button, Card } from "../components/ui/Layout.tsx";
 
 export default function Login() {
@@ -11,29 +12,21 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const { login: authLogin } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
-
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        authLogin(data.user, data.token);
-        navigate("/campgrounds");
-      } else {
-        setError(data.message || "Invalid credentials");
-      }
+      const data = await authApi.login(username, password);
+      authLogin(data.user, data.token);
+      // Return to the protected page that sent the user here, if any
+      const from = (location.state as { from?: string } | null)?.from;
+      navigate(from ?? "/campgrounds", { replace: true });
     } catch (err) {
-      setError("Network error. Please try again.");
+      setError(errorMessage(err, "Invalid credentials"));
     } finally {
       setLoading(false);
     }

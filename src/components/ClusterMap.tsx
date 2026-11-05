@@ -1,12 +1,27 @@
 import React, { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import type { MapPoint } from '../types.ts';
 
 interface ClusterMapProps {
-  campgrounds: any[];
+  campgrounds: MapPoint[];
+}
+
+function toFeatureCollection(campgrounds: MapPoint[]): GeoJSON.FeatureCollection<GeoJSON.Point> {
+  return {
+    type: 'FeatureCollection',
+    features: campgrounds.map((c) => ({
+      type: 'Feature',
+      geometry: c.geometry ?? { type: 'Point', coordinates: [0, 0] },
+      properties: { id: c._id, title: c.title, location: c.location }
+    }))
+  };
 }
 
 const ClusterMap: React.FC<ClusterMapProps> = ({ campgrounds }) => {
+  // The map is created once; its 'load' handler must see the latest data, not the first render's
+  const latestCampgrounds = useRef(campgrounds);
+  latestCampgrounds.current = campgrounds;
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<mapboxgl.Map | null>(null);
 
@@ -16,11 +31,9 @@ const ClusterMap: React.FC<ClusterMapProps> = ({ campgrounds }) => {
         if (!token) console.warn("MapBox Token missing. Discovery Map disabled.");
         return;
     }
-
-    mapboxgl.accessToken = token;
-
     mapInstance.current = new mapboxgl.Map({
       container: mapContainer.current,
+      accessToken: token,
       style: document.documentElement.classList.contains('dark') 
         ? 'mapbox://styles/mapbox/dark-v11' 
         : 'mapbox://styles/mapbox/light-v11',
@@ -34,18 +47,7 @@ const ClusterMap: React.FC<ClusterMapProps> = ({ campgrounds }) => {
     map.on('load', () => {
       map.addSource('campgrounds', {
         type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: campgrounds.map(c => ({
-            type: 'Feature',
-            geometry: c.geometry || { type: 'Point', coordinates: [0, 0] },
-            properties: {
-              id: c._id,
-              title: c.title,
-              location: c.location
-            }
-          }))
-        } as any,
+        data: toFeatureCollection(latestCampgrounds.current),
         cluster: true,
         clusterMaxZoom: 14,
         clusterRadius: 50
@@ -114,9 +116,9 @@ const ClusterMap: React.FC<ClusterMapProps> = ({ campgrounds }) => {
         (map.getSource('campgrounds') as mapboxgl.GeoJSONSource).getClusterExpansionZoom(
           clusterId,
           (err, zoom) => {
-            if (err) return;
+            if (err || zoom == null) return;
             map.easeTo({
-              center: (features[0].geometry as any).coordinates,
+              center: (features[0].geometry as GeoJSON.Point).coordinates as [number, number],
               zoom: zoom
             });
           }
@@ -124,16 +126,28 @@ const ClusterMap: React.FC<ClusterMapProps> = ({ campgrounds }) => {
       });
 
       map.on('click', 'unclustered-point', (e) => {
-          const coordinates = (e.features![0].geometry as any).coordinates.slice();
-          const { title, id } = e.features![0].properties as any;
+          const coordinates = (e.features![0].geometry as GeoJSON.Point).coordinates.slice() as [number, number];
+          const { title, id } = e.features![0].properties as { title: string; id: string };
 
           while (Math.abs(e.lngLat.lng - coordinates[0]) > 180) {
               coordinates[0] += e.lngLat.lng > coordinates[0] ? 360 : -360;
           }
 
+          // Build the popup with DOM nodes + textContent: user data is never parsed as HTML
+          const container = document.createElement('div');
+          container.className = 'p-2 dark:text-slate-800';
+          const heading = document.createElement('h3');
+          heading.className = 'font-bold';
+          heading.textContent = String(title ?? '');
+          const link = document.createElement('a');
+          link.href = `/campgrounds/${encodeURIComponent(String(id))}`;
+          link.className = 'text-emerald-600 text-xs mt-1 block';
+          link.textContent = 'View Site';
+          container.append(heading, link);
+
           new mapboxgl.Popup({ className: 'custom-popup' })
               .setLngLat(coordinates)
-              .setHTML(`<div class="p-2 dark:text-slate-800"><h3 className="font-bold">${title}</h3><a href="/campgrounds/${id}" class="text-emerald-600 text-xs mt-1 block">View Site</a></div>`)
+              .setDOMContent(container)
               .addTo(map);
       });
 
@@ -155,18 +169,7 @@ const ClusterMap: React.FC<ClusterMapProps> = ({ campgrounds }) => {
   useEffect(() => {
     if (mapInstance.current && mapInstance.current.getSource('campgrounds')) {
       const source = mapInstance.current.getSource('campgrounds') as mapboxgl.GeoJSONSource;
-      source.setData({
-        type: 'FeatureCollection',
-        features: campgrounds.map(c => ({
-          type: 'Feature',
-          geometry: c.geometry || { type: 'Point', coordinates: [0, 0] },
-          properties: {
-            id: c._id,
-            title: c.title,
-            location: c.location
-          }
-        }))
-      } as any);
+      source.setData(toFeatureCollection(campgrounds));
     }
   }, [campgrounds]);
 

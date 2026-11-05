@@ -16,6 +16,7 @@ const CampgroundSchema = new Schema({
     ref: "User",
     required: true
   },
+  avgRating: { type: Number, default: 0 },
   reviews: [
     {
       type: Schema.Types.ObjectId,

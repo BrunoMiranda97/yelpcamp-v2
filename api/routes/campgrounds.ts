@@ -1,108 +1,117 @@
 import express from "express";
+import { isValidObjectId } from "mongoose";
 import Campground from "../models/Campground.js";
+import Review from "../models/Review.js";
 import { authenticate, AuthRequest } from "../middleware/auth.js";
-import { upload } from "../config/cloudinary.js";
+import { upload, cloudinary } from "../config/cloudinary.js";
+import { asyncHandler, HttpError } from "../utils/http.js";
+import { campgroundSchema, campgroundUpdateSchema, listQuerySchema, searchQuerySchema } from "../validation/schemas.js";
 // @ts-ignore
 import mbxGeocoding from "@mapbox/mapbox-sdk/services/geocoding.js";
 
 const mapBoxToken = process.env.VITE_MAPBOX_TOKEN;
 const geocoder = mapBoxToken ? mbxGeocoding({ accessToken: mapBoxToken }) : null;
 
+type UploadedFile = { path: string; filename: string };
+
+async function geocode(location: string) {
+  if (!geocoder) return null;
+  const geoData = await geocoder.forwardGeocode({ query: location, limit: 1 }).send();
+  return geoData.body.features[0]?.geometry ?? null;
+}
+
+// Best-effort removal of Cloudinary images; failures must never block the request
+async function destroyImages(filenames: string[]) {
+  await Promise.allSettled(filenames.map((f) => cloudinary.uploader.destroy(f)));
+}
+
+// Case-insensitive match on title or location; user input is escaped so it is never treated as a regex
+function searchFilter(search?: string) {
+  if (!search) return {};
+  const pattern = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+  return { $or: [{ title: pattern }, { location: pattern }] };
+}
+
+async function findOwnedCampground(req: AuthRequest) {
+  const campground = await Campground.findById(req.params.id);
+  if (!campground) throw new HttpError(404, "Campground not found");
+  if (campground.author.toString() !== req.user?.id && !req.user?.isAdmin) {
+    throw new HttpError(403, "Unauthorized");
+  }
+  return campground;
+}
+
 const router = express.Router();
 
-// Get all with pagination
-router.get("/", async (req, res) => {
-  try {
-    console.log("Step 1 - route started");
-
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 20;
-    const skip = (page - 1) * limit;
-
-    console.log("Step 2 - pagination ok");
-
-    const total = await Campground.countDocuments({});
-    console.log("Step 3 - total:", total);
-
-    const campgrounds = await Campground.find({})
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit)
-      .populate("author", "username");
-
-    console.log("Step 4 - find ok:", campgrounds.length);
-
-    res.json({
-      campgrounds,
-      total,
-      hasMore: skip + campgrounds.length < total
-    });
-
-  } catch (err) {
-    console.error("FULL CAMPGROUNDS ERROR:", err);
-
-    res.status(500).json({
-      message: err instanceof Error ? err.message : "Server error"
-    });
-  }
+// Reject malformed ids with 404 instead of letting Mongoose throw a CastError
+router.param("id", (req, res, next, id) => {
+  if (!isValidObjectId(id)) return res.status(404).json({ message: "Campground not found" });
+  next();
 });
+
+// Get all with pagination
+router.get(
+  "/",
+  asyncHandler(async (req, res) => {
+    const { page, limit, search } = listQuerySchema.parse(req.query);
+    const skip = (page - 1) * limit;
+    const filter = searchFilter(search);
+
+    const [total, campgrounds] = await Promise.all([
+      Campground.countDocuments(filter),
+      Campground.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).populate("author", "username")
+    ]);
+
+    res.json({ campgrounds, total, hasMore: skip + campgrounds.length < total });
+  })
+);
 
 // Get all coordinates for the map
-router.get("/map-data", async (req, res) => {
-  try {
-    const campgrounds = await Campground.find({}, { geometry: 1, title: 1, location: 1 });
+router.get(
+  "/map-data",
+  asyncHandler(async (req, res) => {
+    const { search } = searchQuerySchema.parse(req.query);
+    const campgrounds = await Campground.find(searchFilter(search), { geometry: 1, title: 1, location: 1 });
     res.json(campgrounds);
-  } catch (err) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
+  })
+);
 
 // Get one
-router.get("/:id", async (req, res) => {
-  try {
+router.get(
+  "/:id",
+  asyncHandler(async (req, res) => {
     const campground = await Campground.findById(req.params.id)
       .populate("author", "username")
-      .populate({
-        path: "reviews",
-        populate: { path: "author", select: "username" }
-      });
-    if (!campground) return res.status(404).json({ message: "Campground not found" });
+      .populate({ path: "reviews", populate: { path: "author", select: "username" } });
+    if (!campground) throw new HttpError(404, "Campground not found");
     res.json(campground);
-  } catch (err) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
+  })
+);
 
 // Create
-router.post("/", authenticate, upload.array("images"), async (req: AuthRequest, res) => {
-  try {
-    const { title, price, description, location } = req.body;
-    let geometry = { type: "Point", coordinates: [0, 0] };
+router.post(
+  "/",
+  authenticate,
+  upload.array("images", 6),
+  asyncHandler<AuthRequest>(async (req, res) => {
+    const files = (req.files as UploadedFile[] | undefined) ?? [];
 
-    if (geocoder && location) {
-      const geoData = await geocoder.forwardGeocode({
-        query: location,
-        limit: 1
-      }).send();
-      if (geoData.body.features.length > 0) {
-        geometry = geoData.body.features[0].geometry;
-      }
+    const parsed = campgroundSchema.safeParse(req.body);
+    if (!parsed.success) {
+      // Files were already uploaded by multer; remove them so they don't become orphans
+      await destroyImages(files.map((f) => f.filename));
+      throw parsed.error;
+    }
+    const { title, price, description, location, imageUrl } = parsed.data;
+
+    const images = files.map((f) => ({ url: f.path, filename: f.filename }));
+    if (images.length === 0 && imageUrl) {
+      images.push({ url: imageUrl, filename: "external-link" });
     }
 
-    const images = (req.files as any[]).map(f => ({
-      url: f.path,
-      filename: f.filename
-    }));
+    const geometry = (await geocode(location)) ?? { type: "Point", coordinates: [0, 0] };
 
-    // Fallback if no images are uploaded
-    if (images.length === 0 && req.body.imageUrl) {
-      images.push({
-        url: req.body.imageUrl,
-        filename: "external-link"
-      });
-    }
-
-    const campground = new Campground({
+    const campground = await Campground.create({
       title,
       price,
       description,
@@ -111,34 +120,27 @@ router.post("/", authenticate, upload.array("images"), async (req: AuthRequest, 
       geometry,
       author: req.user?.id
     });
-    await campground.save();
-    res.json(campground);
-  } catch (err) {
-    console.error("Geocoding Error:", err);
-    res.status(500).json({ message: "Server error" });
-  }
-});
+    res.status(201).json(campground);
+  })
+);
 
 // Update
-router.put("/:id", authenticate, async (req: AuthRequest, res) => {
-  try {
-    const campground = await Campground.findById(req.params.id);
-    if (!campground) return res.status(404).json({ message: "Campground not found" });
+router.put(
+  "/:id",
+  authenticate,
+  asyncHandler<AuthRequest>(async (req, res) => {
+    const campground = await findOwnedCampground(req);
+    const { title, price, description, location, imageUrl } = campgroundUpdateSchema.parse(req.body);
 
-    if (campground.author.toString() !== req.user?.id && !req.user?.isAdmin) {
-      return res.status(403).json({ message: "Unauthorized" });
+    // A new cover URL replaces previous external links; uploaded images are kept
+    if (imageUrl && imageUrl !== campground.images[0]?.url) {
+      const uploaded = campground.images.filter((img) => img.filename !== "external-link");
+      campground.set("images", [{ url: imageUrl, filename: "external-link" }, ...uploaded]);
     }
 
-    const { title, price, description, location } = req.body;
-
-    if (location && location !== campground.location && geocoder) {
-      const geoData = await geocoder.forwardGeocode({
-        query: location,
-        limit: 1
-      }).send();
-      if (geoData.body.features.length > 0) {
-        campground.geometry = geoData.body.features[0].geometry;
-      }
+    if (location && location !== campground.location) {
+      const geometry = await geocode(location);
+      if (geometry) campground.geometry = geometry;
     }
 
     campground.title = title ?? campground.title;
@@ -148,26 +150,26 @@ router.put("/:id", authenticate, async (req: AuthRequest, res) => {
 
     await campground.save();
     res.json(campground);
-  } catch (err) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
+  })
+);
 
 // Delete
-router.delete("/:id", authenticate, async (req: AuthRequest, res) => {
-  try {
-    const campground = await Campground.findById(req.params.id);
-    if (!campground) return res.status(404).json({ message: "Campground not found" });
+router.delete(
+  "/:id",
+  authenticate,
+  asyncHandler<AuthRequest>(async (req, res) => {
+    const campground = await findOwnedCampground(req);
 
-    if (campground.author.toString() !== req.user?.id && !req.user?.isAdmin) {
-      return res.status(403).json({ message: "Unauthorized" });
-    }
+    await Review.deleteMany({ _id: { $in: campground.reviews } });
+    await Campground.deleteOne({ _id: campground._id });
+    await destroyImages(
+      campground.images
+        .map((img) => img.filename)
+        .filter((f): f is string => !!f && f !== "external-link")
+    );
 
-    await Campground.findByIdAndDelete(req.params.id);
     res.json({ message: "Campground deleted" });
-  } catch (err) {
-    res.status(500).json({ message: "Server error" });
-  }
-});
+  })
+);
 
 export default router;

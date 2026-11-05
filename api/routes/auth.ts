@@ -2,86 +2,54 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../models/User.js";
+import { JWT_SECRET } from "../config/env.js";
+import { asyncHandler, HttpError } from "../utils/http.js";
+import { loginSchema, registerSchema } from "../validation/schemas.js";
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "developmentsupersecret";
+
+function authResponse(user: InstanceType<typeof User>) {
+  const token = jwt.sign(
+    { id: user._id, username: user.username, isAdmin: user.isAdmin },
+    JWT_SECRET,
+    { expiresIn: "1d", algorithm: "HS256" }
+  );
+  return {
+    token,
+    user: { id: user._id, username: user.username, email: user.email, isAdmin: user.isAdmin }
+  };
+}
 
 // Register
-router.post("/register", async (req, res) => {
-  try {
-    const { username, email, password } = req.body;
+router.post(
+  "/register",
+  asyncHandler(async (req, res) => {
+    const { username, email, password } = registerSchema.parse(req.body);
 
-    let user = await User.findOne({ $or: [{ email }, { username }] });
-    if (user) {
-      return res.status(400).json({ message: "User already exists" });
+    if (await User.exists({ $or: [{ email }, { username }] })) {
+      throw new HttpError(400, "User already exists");
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await User.create({ username, email, password: hashedPassword });
 
-    user = new User({
-      username,
-      email,
-      password: hashedPassword
-    });
-
-    await user.save();
-
-    const token = jwt.sign(
-      { id: user._id, username: user.username, isAdmin: (user as any).isAdmin },
-      JWT_SECRET,
-      { expiresIn: "1d" }
-    );
-
-    res.json({
-      token,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        isAdmin: (user as any).isAdmin
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Falha crítica no servidor" });
-  }
-});
+    res.status(201).json(authResponse(user));
+  })
+);
 
 // Login
-router.post("/login", async (req, res) => {
-  try {
-    const { username, password } = req.body;
+router.post(
+  "/login",
+  asyncHandler(async (req, res) => {
+    const { username, password } = loginSchema.parse(req.body);
 
-    const user = await User.findOne({
-      $or: [{ email: username }, { username: username }]
-    });
-    if (!user) {
-      return res.status(400).json({ message: "Invalid credentials" });
+    const user = await User.findOne({ $or: [{ email: username }, { username }] });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      throw new HttpError(400, "Invalid credentials");
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
-
-    const token = jwt.sign(
-      { id: user._id, username: user.username, isAdmin: (user as any).isAdmin },
-      JWT_SECRET,
-      { expiresIn: "1d" }
-    );
-
-    res.json({
-      token,
-      user: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        isAdmin: (user as any).isAdmin
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Falha crítica no servidor" });
-  }
-});
+    res.json(authResponse(user));
+  })
+);
 
 export default router;

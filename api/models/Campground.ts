@@ -17,22 +17,18 @@ const CampgroundSchema = new Schema({
     required: true
   },
   avgRating: { type: Number, default: 0 },
+  // Running total of ratings so the average can be updated atomically with the reviews array
+  ratingSum: { type: Number, default: 0 },
   reviews: [
     {
       type: Schema.Types.ObjectId,
       ref: "Review"
     }
   ],
+  // Optional: absent when the location could not be geocoded (never a fake [0, 0] point)
   geometry: {
-    type: {
-      type: String,
-      enum: ["Point"],
-      required: true
-    },
-    coordinates: {
-      type: [Number],
-      required: true
-    }
+    type: { type: String, enum: ["Point"] },
+    coordinates: { type: [Number], default: undefined }
   }
 }, { timestamps: true });
 

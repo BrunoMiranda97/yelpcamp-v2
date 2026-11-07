@@ -1,4 +1,4 @@
-import { v2 as cloudinary } from 'cloudinary';
+import { v2 as cloudinary, type UploadApiOptions } from 'cloudinary';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import multer from 'multer';
 
@@ -9,13 +9,17 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_SECRET
 });
 
+const uploadOptions: UploadApiOptions = {
+  folder: "YelpCampV2",
+  // Cloudinary inspects the actual file content and rejects anything that is not a real JPEG/PNG
+  allowed_formats: ["jpeg", "jpg", "png"]
+};
+
 const storage = new CloudinaryStorage({
   cloudinary,
-  params: {
-    // @ts-ignore
-    folder: 'YelpCampV2',
-    allowedFormats: ['jpeg', 'png', 'jpg']
-  }
+  // Function form: the package's static option typings don't resolve against current cloudinary
+  // types; the options are passed through to upload_stream unchanged.
+  params: () => uploadOptions
 });
 
 export const upload = multer({

@@ -14,11 +14,12 @@ const httpUrl = z
   .refine((v) => {
     if (v === "") return true;
     try {
-      return ["http:", "https:"].includes(new URL(v).protocol);
+      // https only: matches the CSP (img-src https:) and avoids mixed content
+      return new URL(v).protocol === "https:";
     } catch {
       return false;
     }
-  }, "Image URL must be a valid http(s) URL");
+  }, "Image URL must be a valid https URL");
 
 export const campgroundSchema = z.object({
   title: text("Title", 100),

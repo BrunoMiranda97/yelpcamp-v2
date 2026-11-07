@@ -14,10 +14,21 @@ const geocoder = mapBoxToken ? mbxGeocoding({ accessToken: mapBoxToken }) : null
 
 type UploadedFile = { path: string; filename: string };
 
+/**
+ * Resolves a location to a GeoJSON point. Returns undefined when geocoding is not configured;
+ * rejects unknown locations instead of storing a misleading [0, 0] point.
+ */
 async function geocode(location: string) {
-  if (!geocoder) return null;
-  const geoData = await geocoder.forwardGeocode({ query: location, limit: 1 }).send();
-  return geoData.body.features[0]?.geometry ?? null;
+  if (!geocoder) return undefined;
+  let feature;
+  try {
+    const geoData = await geocoder.forwardGeocode({ query: location, limit: 1 }).send();
+    feature = geoData.body.features[0];
+  } catch {
+    throw new HttpError(502, "Could not look up this location right now. Please try again.");
+  }
+  if (!feature) throw new HttpError(400, "Location not found. Try a more specific address.");
+  return feature.geometry as { type: "Point"; coordinates: [number, number] };
 }
 
 // Best-effort removal of Cloudinary images; failures must never block the request
@@ -71,7 +82,11 @@ router.get(
   "/map-data",
   asyncHandler(async (req, res) => {
     const { search } = searchQuerySchema.parse(req.query);
-    const campgrounds = await Campground.find(searchFilter(search), { geometry: 1, title: 1, location: 1 });
+    // Only campgrounds with real coordinates belong on the map
+    const campgrounds = await Campground.find(
+      { ...searchFilter(search), "geometry.coordinates": { $size: 2, $ne: [0, 0] } },
+      { geometry: 1, title: 1, location: 1 }
+    );
     res.json(campgrounds);
   })
 );
@@ -109,17 +124,23 @@ router.post(
       images.push({ url: imageUrl, filename: "external-link" });
     }
 
-    const geometry = (await geocode(location)) ?? { type: "Point", coordinates: [0, 0] };
-
-    const campground = await Campground.create({
-      title,
-      price,
-      description,
-      location,
-      images,
-      geometry,
-      author: req.user?.id
-    });
+    // Images are already on Cloudinary: if anything below fails, remove them (compensating action)
+    let campground;
+    try {
+      const geometry = await geocode(location);
+      campground = await Campground.create({
+        title,
+        price,
+        description,
+        location,
+        images,
+        geometry,
+        author: req.user?.id
+      });
+    } catch (err) {
+      await destroyImages(files.map((f) => f.filename));
+      throw err;
+    }
     res.status(201).json(campground);
   })
 );
@@ -140,7 +161,7 @@ router.put(
 
     if (location && location !== campground.location) {
       const geometry = await geocode(location);
-      if (geometry) campground.geometry = geometry;
+      if (geometry) campground.set("geometry", geometry);
     }
 
     campground.title = title ?? campground.title;

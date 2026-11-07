@@ -1,5 +1,5 @@
 import express from "express";
-import { isValidObjectId } from "mongoose";
+import { isValidObjectId, Types } from "mongoose";
 import Review from "../models/Review.js";
 import Campground from "../models/Campground.js";
 import { authenticate, AuthRequest } from "../middleware/auth.js";
@@ -8,15 +8,53 @@ import { reviewSchema } from "../validation/schemas.js";
 
 const router = express.Router({ mergeParams: true });
 
-async function updateAvgRating(campgroundId: string) {
-  const campground = await Campground.findById(campgroundId).populate<{ reviews: { rating: number }[] }>(
-    "reviews",
-    "rating"
+// avgRating derived from the running sum and the reviews array, computed inside the same update
+const averageStage = {
+  $set: {
+    avgRating: {
+      $cond: [
+        { $gt: [{ $size: "$reviews" }, 0] },
+        { $round: [{ $divide: ["$ratingSum", { $size: "$reviews" }] }, 1] },
+        0
+      ]
+    }
+  }
+};
+
+/**
+ * Adds a review reference and updates the rating in a single-document update pipeline.
+ * Single-document writes are atomic in MongoDB, so concurrent reviews can't produce a stale average.
+ */
+function attachReview(campgroundId: string, reviewId: Types.ObjectId, rating: number) {
+  return Campground.updateOne(
+    { _id: campgroundId },
+    [
+      {
+        $set: {
+          reviews: { $concatArrays: [{ $ifNull: ["$reviews", []] }, [reviewId]] },
+          ratingSum: { $add: [{ $ifNull: ["$ratingSum", 0] }, rating] }
+        }
+      },
+      averageStage
+    ],
+    { updatePipeline: true }
   );
-  if (!campground) return;
-  const ratings = campground.reviews.map((r) => r.rating);
-  const avg = ratings.length ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
-  await Campground.updateOne({ _id: campgroundId }, { avgRating: Math.round(avg * 10) / 10 });
+}
+
+function detachReview(campgroundId: string, reviewId: Types.ObjectId, rating: number) {
+  return Campground.updateOne(
+    { _id: campgroundId, reviews: reviewId },
+    [
+      {
+        $set: {
+          reviews: { $filter: { input: "$reviews", cond: { $ne: ["$$this", reviewId] } } },
+          ratingSum: { $max: [0, { $subtract: [{ $ifNull: ["$ratingSum", 0] }, rating] }] }
+        }
+      },
+      averageStage
+    ],
+    { updatePipeline: true }
+  );
 }
 
 // Create Review
@@ -31,10 +69,16 @@ router.post(
 
     const { body, rating } = reviewSchema.parse(req.body);
 
-    // Save the review first so a failure never leaves a dangling reference on the campground
+    // Save the review first so a failure never leaves a dangling reference on the campground.
+    // If attaching fails (or the campground was deleted meanwhile), undo the insert.
     const review = await Review.create({ body, rating, author: req.user?.id });
-    await Campground.updateOne({ _id: id }, { $push: { reviews: review._id } });
-    await updateAvgRating(id);
+    try {
+      const { matchedCount } = await attachReview(id, review._id, rating);
+      if (matchedCount === 0) throw new HttpError(404, "Campground not found");
+    } catch (err) {
+      await Review.deleteOne({ _id: review._id }).catch(() => undefined);
+      throw err;
+    }
 
     const fullReview = await Review.findById(review._id).populate("author", "username");
     res.status(201).json(fullReview);
@@ -60,9 +104,10 @@ router.delete(
       throw new HttpError(403, "Unauthorized");
     }
 
-    await Campground.updateOne({ _id: id }, { $pull: { reviews: reviewId } });
+    // Detach first: if the delete below fails, the leftover review is unreferenced and invisible
+    const { matchedCount } = await detachReview(id, review._id, review.rating);
+    if (matchedCount === 0) throw new HttpError(404, "Review not found");
     await Review.deleteOne({ _id: reviewId });
-    await updateAvgRating(id);
 
     res.json({ message: "Review deleted" });
   })

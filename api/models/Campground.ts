@@ -32,4 +32,20 @@ const CampgroundSchema = new Schema({
   }
 }, { timestamps: true });
 
+/**
+ * Update-pipeline stage deriving avgRating from ratingSum and the reviews array.
+ * Shared by review writes and the backfill migration so both round identically (MongoDB $round).
+ */
+export const averageStage = {
+  $set: {
+    avgRating: {
+      $cond: [
+        { $gt: [{ $size: "$reviews" }, 0] },
+        { $round: [{ $divide: ["$ratingSum", { $size: "$reviews" }] }, 1] },
+        0
+      ]
+    }
+  }
+};
+
 export default mongoose.model("Campground", CampgroundSchema);

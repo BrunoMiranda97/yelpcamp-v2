@@ -29,6 +29,7 @@
   "include": [
     "src",
     "api",
+    "scripts",
     "tests",
     "vite.config.ts",
     "vitest.config.ts"

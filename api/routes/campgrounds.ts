@@ -160,8 +160,9 @@ router.put(
     }
 
     if (location && location !== campground.location) {
-      const geometry = await geocode(location);
-      if (geometry) campground.set("geometry", geometry);
+      // geocode() throws when the new location can't be resolved, so stale coordinates are never kept.
+      // Without a geocoder (undefined) the old point is removed rather than left at the previous place.
+      campground.set("geometry", await geocode(location));
     }
 
     campground.title = title ?? campground.title;

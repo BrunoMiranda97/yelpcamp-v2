@@ -1,25 +1,12 @@
 import express from "express";
 import { isValidObjectId, Types } from "mongoose";
 import Review from "../models/Review.js";
-import Campground from "../models/Campground.js";
+import Campground, { averageStage } from "../models/Campground.js";
 import { authenticate, AuthRequest } from "../middleware/auth.js";
 import { asyncHandler, HttpError } from "../utils/http.js";
 import { reviewSchema } from "../validation/schemas.js";
 
 const router = express.Router({ mergeParams: true });
-
-// avgRating derived from the running sum and the reviews array, computed inside the same update
-const averageStage = {
-  $set: {
-    avgRating: {
-      $cond: [
-        { $gt: [{ $size: "$reviews" }, 0] },
-        { $round: [{ $divide: ["$ratingSum", { $size: "$reviews" }] }, 1] },
-        0
-      ]
-    }
-  }
-};
 
 /**
  * Adds a review reference and updates the rating in a single-document update pipeline.

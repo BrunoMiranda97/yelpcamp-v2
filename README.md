@@ -104,6 +104,7 @@ npm run dev            # API on :3001 + Vite on :5173 (proxied /api)
 | `npm run lint` | TypeScript type check (strict) |
 | `npm run build` / `npm run build:api` | Build the SPA / compile the API to `build/api` |
 | `npm start` | Run the compiled API (serves the SPA when `NODE_ENV=production`) |
+| `npm run migrate:ratings` | Backfill rating totals for legacy data (dry run; `-- --apply` to write) |
 
 ### Docker
 
@@ -117,13 +118,14 @@ Compose starts the app together with a local MongoDB, so the stack runs with one
 
 ## Testing and CI
 
-There are 38 tests. The API tests are integration tests that run against a real MongoDB in memory. They cover:
+There are 43 tests. The API tests are integration tests that run against a real MongoDB in memory. They cover:
 
 - **Authentication:** validation, password hashing, blocking self-assigned admin rights, NoSQL injection, forged tokens and rate limiting.
 - **Authorization:** users cannot edit or delete other users' campgrounds or reviews, and a review cannot be deleted through another campground's URL.
 - **Data integrity:** the average rating stays exact even under concurrent reviews, and deleting a campground also deletes its reviews.
 - **Search and pagination:** search runs on the server, regex input is escaped and page sizes are capped.
-- **Geocoding** (Mapbox mocked): unknown locations are rejected and upstream failures save nothing.
+- **Geocoding** (Mapbox mocked): unknown locations are rejected, upstream failures save nothing and edits never keep a stale map point.
+- **Migration:** the rating backfill fixes legacy data, is idempotent and writes nothing in dry-run mode.
 - **Frontend:** restoring a session (expired or corrupted data) and the route guard.
 
 GitHub Actions runs the lint, tests and both builds on every push and pull request, and also checks that the Docker image builds.
@@ -138,7 +140,7 @@ Key fixes from the audit, and the reasoning behind them:
 - **JWT secret:** the hard-coded fallback secret was removed. Configuration is validated at startup, so the app fails fast instead of signing tokens with a known key.
 - **Validation and errors:** every input goes through Zod schemas, and a central error handler maps errors to consistent 4xx responses without leaking internals. Malformed IDs return 404 instead of 500.
 - **Data integrity:** deleting a campground also removes its reviews and its Cloudinary images. If validation, geocoding or saving fails after an upload, the uploaded images are deleted again.
-- **Rating consistency:** a review reference and the rating total are written in a single-document update pipeline, so the average is computed atomically and concurrent reviews cannot overwrite each other. If attaching a review fails, the review document is removed again. This works without transactions, which would need a replica set and would rule out a standalone MongoDB.
+- **Rating consistency:** a review reference and the rating total are written in a single-document update pipeline, so the average is computed atomically and concurrent reviews cannot overwrite each other. If attaching a review fails, the review document is removed again. This works without transactions, which would need a replica set and would rule out a standalone MongoDB. For data created before the running total existed, `npm run migrate:ratings` recomputes it from the reviews. It is a dry run by default; add `-- --apply` to write the changes.
 - **Locations:** a location that cannot be geocoded is rejected instead of being stored at `[0, 0]`. Campgrounds without coordinates are left off the map.
 - **Search:** search used to filter only the page already loaded in the browser. It now runs on the server, with debounce and cancellation of outdated requests.
 - **Type safety:** the project had no React type definitions and strict mode was off, so most frontend code was effectively `any`. The codebase now type-checks under `strict`, with shared domain types.

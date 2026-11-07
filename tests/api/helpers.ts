@@ -40,7 +40,12 @@ export async function createUser({ isAdmin = false, password = "password123" } =
   return { user, password, auth: `Bearer ${token}` };
 }
 
-type CampgroundOverrides = Partial<{ title: string; location: string; images: { url: string; filename: string }[] }>;
+type CampgroundOverrides = Partial<{
+  title: string;
+  location: string;
+  images: { url: string; filename: string }[];
+  geometry: { type: "Point"; coordinates: number[] } | undefined;
+}>;
 
 export function createCampground(authorId: Types.ObjectId, overrides: CampgroundOverrides = {}) {
   return Campground.create({

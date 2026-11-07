@@ -51,6 +51,19 @@ describe("GET /api/campgrounds", () => {
   });
 });
 
+describe("GET /api/campgrounds/map-data", () => {
+  it("only returns campgrounds with real coordinates", async () => {
+    const { user } = await createUser();
+    await createCampground(user._id, { title: "Mapped" });
+    await createCampground(user._id, { title: "Null Island", geometry: { type: "Point", coordinates: [0, 0] } });
+    await createCampground(user._id, { title: "Unknown", geometry: undefined });
+
+    const res = await request(app).get("/api/campgrounds/map-data");
+
+    expect(res.body.map((c: { title: string }) => c.title)).toEqual(["Mapped"]);
+  });
+});
+
 describe("GET /api/campgrounds/:id", () => {
   it("returns 404 for malformed and unknown ids", async () => {
     expect((await request(app).get("/api/campgrounds/not-an-id")).status).toBe(404);
@@ -73,6 +86,25 @@ describe("POST /api/campgrounds", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/Price/);
+  });
+
+  it("only accepts https image URLs", async () => {
+    const { auth } = await createUser();
+    const res = await request(app)
+      .post("/api/campgrounds")
+      .set("Authorization", auth)
+      .field({ ...validFields, imageUrl: "http://example.com/lake.jpg" });
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/https/);
+  });
+
+  it("stores no fake coordinates when geocoding is unavailable", async () => {
+    const { auth } = await createUser();
+    const res = await request(app).post("/api/campgrounds").set("Authorization", auth).field(validFields);
+
+    expect(res.status).toBe(201);
+    expect(res.body.geometry).toBeUndefined();
   });
 
   it("creates a campground owned by the requester", async () => {

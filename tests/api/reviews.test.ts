@@ -27,6 +27,22 @@ describe("reviews", () => {
     expect(updated?.avgRating).toBe(4.5);
   });
 
+  it("keeps the average exact under concurrent reviews", async () => {
+    const host = await createUser();
+    const camp = await createCampground(host.user._id);
+    const reviewers = await Promise.all([1, 2, 3, 4, 5].map(() => createUser()));
+
+    // All requests race each other; the single-document update pipeline must not lose any
+    const results = await Promise.all(
+      reviewers.map((r, i) => postReview(camp._id, r.auth, { body: "Race", rating: i + 1 }))
+    );
+
+    expect(results.every((r) => r.status === 201)).toBe(true);
+    const updated = await Campground.findById(camp._id);
+    expect(updated?.reviews).toHaveLength(5);
+    expect(updated?.avgRating).toBe(3);
+  });
+
   it("rejects ratings outside 1-5", async () => {
     const { user, auth } = await createUser();
     const camp = await createCampground(user._id);

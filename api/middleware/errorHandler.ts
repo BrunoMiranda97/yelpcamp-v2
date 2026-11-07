@@ -25,9 +25,13 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof multer.MulterError) {
     return res.status(400).json({ message: `Upload error: ${err.message}` });
   }
-  // Cloudinary rejected the upload (e.g. the file is not a real JPEG/PNG): a client error, not a 500
-  if (typeof err?.http_code === "number" && err.http_code >= 400 && err.http_code < 500) {
+  // Cloudinary errors: only content problems are the user's fault. Auth/permission/quota errors
+  // (401, 403, 420...) mean our configuration is wrong and fall through to a logged 500.
+  if (err?.http_code === 400) {
     return res.status(400).json({ message: "Invalid image file. Please upload a JPEG or PNG image." });
+  }
+  if (err?.http_code === 413) {
+    return res.status(413).json({ message: "Image is too large." });
   }
   if (err?.code === 11000) {
     return res.status(409).json({ message: "Resource already exists" });

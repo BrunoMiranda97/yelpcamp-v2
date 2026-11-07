@@ -118,7 +118,7 @@ Compose starts the app together with a local MongoDB, so the stack runs with one
 
 ## Testing and CI
 
-There are 45 tests. The API tests are integration tests that run against a real MongoDB in memory. They cover:
+There are 51 tests. The API tests are integration tests that run against a real MongoDB in memory. They cover:
 
 - **Authentication:** validation, password hashing, blocking self-assigned admin rights, NoSQL injection, forged tokens and rate limiting.
 - **Authorization:** users cannot edit or delete other users' campgrounds or reviews, and a review cannot be deleted through another campground's URL.

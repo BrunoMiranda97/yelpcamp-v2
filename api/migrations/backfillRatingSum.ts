@@ -18,7 +18,7 @@ export async function backfillRatingSum({ dryRun = false } = {}): Promise<Backfi
   // Missing ratingSum also matches $ne: 0, so legacy documents are always included
   const cursor = Campground.find(
     { $or: [{ "reviews.0": { $exists: true } }, { ratingSum: { $ne: 0 } }] },
-    { reviews: 1, ratingSum: 1 }
+    { reviews: 1, ratingSum: 1, avgRating: 1 }
   ).cursor();
 
   for await (const campground of cursor) {
@@ -29,9 +29,20 @@ export async function backfillRatingSum({ dryRun = false } = {}): Promise<Backfi
     const reviews = campground.reviews.filter((id) => ratingById.has(String(id)));
     const ratingSum = reviews.reduce((sum, id) => sum + ratingById.get(String(id))!, 0);
 
-    // avgRating is recomputed by the shared pipeline stage, so a correct ratingSum implies a correct average
+    // Expected average computed by MongoDB with the same stage the review routes use, so rounding
+    // matches exactly (JS rounding would differ on values like 4.25 and break idempotency)
+    const [expected] = await Campground.aggregate<{ avgRating: number }>([
+      { $match: { _id: campground._id } },
+      { $set: { reviews, ratingSum } },
+      averageStage,
+      { $project: { avgRating: 1 } }
+    ]);
+
     const raw = campground.toObject();
-    const unchanged = raw.ratingSum === ratingSum && reviews.length === campground.reviews.length;
+    const unchanged =
+      raw.ratingSum === ratingSum &&
+      reviews.length === campground.reviews.length &&
+      raw.avgRating === expected?.avgRating;
     if (unchanged) continue;
 
     if (dryRun) {

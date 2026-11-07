@@ -56,6 +56,28 @@ describe("backfillRatingSum", () => {
     expect(after?.avgRating).toBe(4.2); // 17 / 4 = 4.25, MongoDB $round is half-to-even
   });
 
+  it("fixes a stale average even when the totals are already right", async () => {
+    const { user } = await createUser();
+    const camp = await createCampground(user._id);
+    const reviews = await Review.insertMany([4, 5].map((rating) => ({ body: "Ok", rating, author: user._id })));
+    await Campground.collection.updateOne(
+      { _id: camp._id },
+      { $set: { reviews: reviews.map((r) => r._id), ratingSum: 9, avgRating: 1 } }
+    );
+
+    const result = await backfillRatingSum();
+
+    expect(result.updated).toBe(1);
+    expect((await Campground.findById(camp._id))?.avgRating).toBe(4.5);
+  });
+
+  it("is idempotent, including averages that round half-to-even", async () => {
+    await legacyCampground([4, 5, 3, 5]); // 17 / 4 = 4.25 -> 4.2 in MongoDB
+    await backfillRatingSum();
+
+    expect((await backfillRatingSum()).updated).toBe(0);
+  });
+
   it("is idempotent", async () => {
     await legacyCampground([2, 4]);
     await backfillRatingSum();

@@ -13,7 +13,7 @@ vi.mock("@mapbox/mapbox-sdk/services/geocoding.js", () => ({
 
 const { default: app } = await import("../../api/app.ts");
 const { default: Campground } = await import("../../api/models/Campground.ts");
-const { createUser, useTestDatabase } = await import("./helpers.ts");
+const { createCampground, createUser, useTestDatabase } = await import("./helpers.ts");
 
 useTestDatabase();
 
@@ -53,5 +53,23 @@ describe("geocoding on create", () => {
 
     expect(res.status).toBe(502);
     expect(await Campground.countDocuments()).toBe(0);
+  });
+});
+
+describe("geocoding on update", () => {
+  it("keeps the old location when the new one cannot be found", async () => {
+    geocoderResponse.next = async () => ({ body: { features: [] } });
+    const owner = await createUser();
+    const camp = await createCampground(owner.user._id);
+
+    const res = await request(app)
+      .put(`/api/campgrounds/${camp._id}`)
+      .set("Authorization", owner.auth)
+      .send({ location: "Nowhere land" });
+
+    expect(res.status).toBe(400);
+    const unchanged = await Campground.findById(camp._id);
+    expect(unchanged?.location).toBe("Denver, CO");
+    expect(unchanged?.geometry?.coordinates).toEqual([-104.9, 39.7]);
   });
 });

@@ -145,6 +145,20 @@ describe("PUT /api/campgrounds/:id", () => {
     expect(byAdmin.body).toMatchObject({ price: 40, title: "Renamed" });
   });
 
+  it("drops the old map point when a new location cannot be geocoded", async () => {
+    const owner = await createUser();
+    const camp = await createCampground(owner.user._id);
+
+    const res = await request(app)
+      .put(`/api/campgrounds/${camp._id}`)
+      .set("Authorization", owner.auth)
+      .send({ location: "Somewhere else" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.location).toBe("Somewhere else");
+    expect(res.body.geometry).toBeUndefined();
+  });
+
   it("replaces the cover image when a new URL is sent", async () => {
     const owner = await createUser();
     const camp = await createCampground(owner.user._id, { images: [{ url: "https://old.com/a.jpg", filename: "external-link" }] });

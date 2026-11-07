@@ -35,7 +35,8 @@ interface CampgroundBase {
   description: string;
   location: string;
   images: CampgroundImage[];
-  geometry: Geometry;
+  /** Absent when the location could not be geocoded. */
+  geometry?: Geometry;
   author: Author | null;
   avgRating: number;
   createdAt: string;

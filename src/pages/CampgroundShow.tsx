@@ -178,11 +178,19 @@ export default function CampgroundShow() {
 
         <div className="space-y-8 col-span-1">
           <div className="sticky top-24 space-y-8">
-            <LocationMap
-              coordinates={campground.geometry?.coordinates ?? [0, 0]}
-              title={campground.title}
-              location={campground.location}
-            />
+            {campground.geometry ? (
+              <LocationMap
+                coordinates={campground.geometry.coordinates}
+                title={campground.title}
+                location={campground.location}
+              />
+            ) : (
+              <div className="h-[350px] w-full rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-800 flex flex-col items-center justify-center gap-2 text-center p-6">
+                <MapPin className="w-6 h-6 text-slate-400" />
+                <p className="text-sm font-semibold text-slate-500">Map location unavailable</p>
+                <p className="text-xs text-slate-400">{campground.location}</p>
+              </div>
+            )}
             <ReviewForm isAuthenticated={!!user} onSubmit={handleReviewSubmit} />
           </div>
         </div>

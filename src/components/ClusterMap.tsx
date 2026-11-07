@@ -10,9 +10,10 @@ interface ClusterMapProps {
 function toFeatureCollection(campgrounds: MapPoint[]): GeoJSON.FeatureCollection<GeoJSON.Point> {
   return {
     type: 'FeatureCollection',
-    features: campgrounds.map((c) => ({
+    // Campgrounds without coordinates are skipped rather than drawn at a fake location
+    features: campgrounds.filter((c) => c.geometry).map((c) => ({
       type: 'Feature',
-      geometry: c.geometry ?? { type: 'Point', coordinates: [0, 0] },
+      geometry: c.geometry!,
       properties: { id: c._id, title: c.title, location: c.location }
     }))
   };
